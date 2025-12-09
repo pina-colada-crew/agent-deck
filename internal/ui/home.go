@@ -16,7 +16,16 @@ import (
 
 	"github.com/asheshgoplani/agent-deck/internal/session"
 	"github.com/asheshgoplani/agent-deck/internal/tmux"
+	"github.com/asheshgoplani/agent-deck/internal/update"
 )
+
+// Version is set by main.go for update checking
+var Version = "0.0.0"
+
+// SetVersion sets the current version for update checking
+func SetVersion(v string) {
+	Version = v
+}
 
 // Terminal escape sequences for smooth transitions
 const (
@@ -83,6 +92,9 @@ type Home struct {
 	// Storage warning (shown if storage initialization failed)
 	storageWarning string
 
+	// Update notification (async check on startup)
+	updateInfo *update.UpdateInfo
+
 	// Context for cleanup
 	ctx    context.Context
 	cancel context.CancelFunc
@@ -103,6 +115,10 @@ type sessionCreatedMsg struct {
 type refreshMsg struct{}
 
 type statusUpdateMsg struct{} // Triggers immediate status update without reloading
+
+type updateCheckMsg struct {
+	info *update.UpdateInfo
+}
 
 type tickMsg time.Time
 
@@ -281,7 +297,16 @@ func (h *Home) Init() tea.Cmd {
 	return tea.Batch(
 		h.loadSessions,
 		h.tick(),
+		h.checkForUpdate(),
 	)
+}
+
+// checkForUpdate checks for updates asynchronously
+func (h *Home) checkForUpdate() tea.Cmd {
+	return func() tea.Msg {
+		info, _ := update.CheckForUpdate(Version, false)
+		return updateCheckMsg{info: info}
+	}
 }
 
 // loadSessions loads sessions from storage
@@ -533,6 +558,10 @@ func (h *Home) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		h.search.SetItems(h.instances)
 		// Save both instances AND groups (critical fix: was losing groups!)
 		h.saveInstances()
+		return h, nil
+
+	case updateCheckMsg:
+		h.updateInfo = msg.info
 		return h, nil
 
 	case refreshMsg:
@@ -1254,10 +1283,28 @@ func (h *Home) View() string {
 	b.WriteString("\n")
 
 	// ═══════════════════════════════════════════════════════════════════
+	// UPDATE BANNER (if update available)
+	// ═══════════════════════════════════════════════════════════════════
+	updateBannerHeight := 0
+	if h.updateInfo != nil && h.updateInfo.Available {
+		updateBannerHeight = 1
+		updateStyle := lipgloss.NewStyle().
+			Foreground(ColorBg).
+			Background(ColorYellow).
+			Bold(true).
+			Width(h.width).
+			Align(lipgloss.Center)
+		updateText := fmt.Sprintf(" ⬆ Update available: v%s → v%s (run: agent-deck update) ",
+			h.updateInfo.CurrentVersion, h.updateInfo.LatestVersion)
+		b.WriteString(updateStyle.Render(updateText))
+		b.WriteString("\n")
+	}
+
+	// ═══════════════════════════════════════════════════════════════════
 	// MAIN CONTENT AREA
 	// ═══════════════════════════════════════════════════════════════════
-	helpBarHeight := 3                            // Help bar takes 3 lines
-	contentHeight := h.height - 2 - helpBarHeight // -2 for header, -helpBarHeight for help
+	helpBarHeight := 3                                              // Help bar takes 3 lines
+	contentHeight := h.height - 2 - helpBarHeight - updateBannerHeight // -2 for header, -helpBarHeight for help
 
 	// Calculate panel widths (35% left, 65% right for more preview space)
 	leftWidth := int(float64(h.width) * 0.35)

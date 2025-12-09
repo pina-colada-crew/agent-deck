@@ -12,12 +12,13 @@ import (
 
 	"github.com/asheshgoplani/agent-deck/internal/session"
 	"github.com/asheshgoplani/agent-deck/internal/ui"
+	"github.com/asheshgoplani/agent-deck/internal/update"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
 	"github.com/muesli/termenv"
 )
 
-const Version = "0.3.1"
+const Version = "0.4.0"
 
 // Table column widths for list command output
 const (
@@ -33,7 +34,7 @@ func init() {
 }
 
 // initColorProfile configures lipgloss color profile based on terminal capabilities.
-// This ensures colors work out-of-the-box even in SSH sessions or basic terminals.
+// Prefers TrueColor for best visuals, falls back to ANSI256 for compatibility.
 func initColorProfile() {
 	// Allow user override via environment variable
 	// AGENTDECK_COLOR: truecolor, 256, 16, none
@@ -54,25 +55,49 @@ func initColorProfile() {
 		}
 	}
 
-	// Auto-detect with sensible defaults
-	// Check COLORTERM for truecolor support
+	// Auto-detect with TrueColor preference
+	// Most modern terminals support TrueColor even if not advertised
+
+	// Explicit TrueColor support
 	colorTerm := os.Getenv("COLORTERM")
 	if colorTerm == "truecolor" || colorTerm == "24bit" {
 		lipgloss.SetColorProfile(termenv.TrueColor)
 		return
 	}
 
-	// Check TERM for 256 color support
+	// Check TERM for capability hints
 	term := os.Getenv("TERM")
-	if strings.Contains(term, "256color") || strings.Contains(term, "xterm") {
-		// Most xterm-compatible terminals support 256 colors
-		lipgloss.SetColorProfile(termenv.ANSI256)
+
+	// Known TrueColor-capable terminals
+	trueColorTerms := []string{
+		"xterm-256color",
+		"screen-256color",
+		"tmux-256color",
+		"xterm-direct",
+		"alacritty",
+		"kitty",
+		"wezterm",
+	}
+	for _, t := range trueColorTerms {
+		if strings.Contains(term, t) || term == t {
+			// These terminals typically support TrueColor
+			lipgloss.SetColorProfile(termenv.TrueColor)
+			return
+		}
+	}
+
+	// Check for common terminal emulators via env vars
+	// Windows Terminal, iTerm2, etc. set these
+	if os.Getenv("WT_SESSION") != "" || // Windows Terminal
+		os.Getenv("ITERM_SESSION_ID") != "" || // iTerm2
+		os.Getenv("TERMINAL_EMULATOR") != "" || // JetBrains terminals
+		os.Getenv("KONSOLE_VERSION") != "" { // Konsole
+		lipgloss.SetColorProfile(termenv.TrueColor)
 		return
 	}
 
-	// Default: Force ANSI256 for consistent experience
-	// This works in most modern terminals and SSH sessions
-	// Hex colors will be automatically converted to nearest 256-color
+	// Fallback: Use ANSI256 for maximum compatibility
+	// Works in SSH, basic terminals, and older emulators
 	lipgloss.SetColorProfile(termenv.ANSI256)
 }
 
@@ -104,8 +129,14 @@ func main() {
 		case "profile":
 			handleProfile(args[1:])
 			return
+		case "update":
+			handleUpdate(args[1:])
+			return
 		}
 	}
+
+	// Set version for UI update checking
+	ui.SetVersion(Version)
 
 	// Check if tmux is available
 	if _, err := exec.LookPath("tmux"); err != nil {
@@ -823,6 +854,71 @@ func handleProfileSetDefault(name string) {
 	fmt.Printf("✓ Default profile set to: %s\n", name)
 }
 
+// handleUpdate checks for and performs updates
+func handleUpdate(args []string) {
+	fs := flag.NewFlagSet("update", flag.ExitOnError)
+	checkOnly := fs.Bool("check", false, "Only check for updates, don't install")
+	forceCheck := fs.Bool("force", false, "Force check (ignore cache)")
+
+	fs.Usage = func() {
+		fmt.Println("Usage: agent-deck update [options]")
+		fmt.Println()
+		fmt.Println("Check for and install updates.")
+		fmt.Println()
+		fmt.Println("Options:")
+		fs.PrintDefaults()
+		fmt.Println()
+		fmt.Println("Examples:")
+		fmt.Println("  agent-deck update           # Check and install if available")
+		fmt.Println("  agent-deck update --check   # Only check, don't install")
+	}
+
+	if err := fs.Parse(args); err != nil {
+		os.Exit(1)
+	}
+
+	fmt.Printf("Agent Deck v%s\n", Version)
+	fmt.Println("Checking for updates...")
+
+	info, err := update.CheckForUpdate(Version, *forceCheck)
+	if err != nil {
+		fmt.Printf("Error checking for updates: %v\n", err)
+		os.Exit(1)
+	}
+
+	if !info.Available {
+		fmt.Println("✓ You're running the latest version!")
+		return
+	}
+
+	fmt.Printf("\n⬆ Update available: v%s → v%s\n", info.CurrentVersion, info.LatestVersion)
+	fmt.Printf("  Release: %s\n", info.ReleaseURL)
+
+	if *checkOnly {
+		fmt.Println("\nRun 'agent-deck update' to install.")
+		return
+	}
+
+	// Confirm update
+	fmt.Print("\nInstall update? [Y/n] ")
+	var response string
+	fmt.Scanln(&response)
+	if response != "" && response != "y" && response != "Y" {
+		fmt.Println("Update cancelled.")
+		return
+	}
+
+	// Perform update
+	fmt.Println()
+	if err := update.PerformUpdate(info.DownloadURL); err != nil {
+		fmt.Printf("Error installing update: %v\n", err)
+		os.Exit(1)
+	}
+
+	fmt.Printf("\n✓ Updated to v%s\n", info.LatestVersion)
+	fmt.Println("  Restart agent-deck to use the new version.")
+}
+
 func printHelp() {
 	fmt.Printf("Agent Deck v%s\n", Version)
 	fmt.Println("Terminal session manager for AI coding agents")
@@ -839,6 +935,7 @@ func printHelp() {
 	fmt.Println("  remove, rm       Remove a session")
 	fmt.Println("  status           Show session status summary")
 	fmt.Println("  profile          Manage profiles")
+	fmt.Println("  update           Check for and install updates")
 	fmt.Println("  version          Show version")
 	fmt.Println("  help             Show this help")
 	fmt.Println()
