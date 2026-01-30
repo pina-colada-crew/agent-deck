@@ -127,6 +127,7 @@ func (g *GroupDialog) ShowRename(currentPath, currentName string) {
 	g.groupPath = currentPath
 	g.validationErr = ""
 	g.nameInput.SetValue(currentName)
+	g.nameInput.SetCursor(len(g.nameInput.Value()))
 	g.nameInput.Focus()
 }
 
@@ -161,6 +162,7 @@ func (g *GroupDialog) ShowRenameSession(sessionID, currentName string) {
 	g.sessionID = sessionID
 	g.validationErr = ""
 	g.nameInput.SetValue(currentName)
+	g.nameInput.SetCursor(len(g.nameInput.Value()))
 	g.nameInput.Focus()
 }
 
