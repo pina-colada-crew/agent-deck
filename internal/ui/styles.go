@@ -507,14 +507,15 @@ func initStyles() {
 	GroupExpandSelStyle = lipgloss.NewStyle().Foreground(ColorBg).Background(ColorAccent)
 
 	// ToolStyleCache - reinitialize with current theme colors
+	// All tools use dim text to make status indicators (running/waiting) more prominent
 	ToolStyleCache = map[string]lipgloss.Style{
-		"claude":   lipgloss.NewStyle().Foreground(ColorOrange),
-		"gemini":   lipgloss.NewStyle().Foreground(ColorPurple),
-		"codex":    lipgloss.NewStyle().Foreground(ColorCyan),
-		"aider":    lipgloss.NewStyle().Foreground(ColorRed),
-		"cursor":   lipgloss.NewStyle().Foreground(ColorAccent),
-		"shell":    lipgloss.NewStyle().Foreground(ColorText),
-		"opencode": lipgloss.NewStyle().Foreground(ColorText),
+		"claude":   lipgloss.NewStyle().Foreground(ColorTextDim),
+		"gemini":   lipgloss.NewStyle().Foreground(ColorTextDim),
+		"codex":    lipgloss.NewStyle().Foreground(ColorTextDim),
+		"aider":    lipgloss.NewStyle().Foreground(ColorTextDim),
+		"cursor":   lipgloss.NewStyle().Foreground(ColorTextDim),
+		"shell":    lipgloss.NewStyle().Foreground(ColorTextDim),
+		"opencode": lipgloss.NewStyle().Foreground(ColorTextDim),
 	}
 
 	// DefaultToolStyle

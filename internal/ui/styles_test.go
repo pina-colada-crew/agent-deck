@@ -114,22 +114,22 @@ func TestInitTheme_StylesReinitialized(t *testing.T) {
 func TestToolStyleCache_ReinitializedOnThemeChange(t *testing.T) {
 	// Initialize with dark theme
 	InitTheme("dark")
-	darkOrangeColor := ColorOrange
+	darkTextDimColor := ColorTextDim
 
-	// The tool style cache should use dark theme orange
+	// All tool styles use dim text color to make status indicators more prominent
 	claudeStyle := GetToolStyle("claude")
-	if claudeStyle.GetForeground() != darkOrangeColor {
-		t.Errorf("Claude style should use dark theme orange color")
+	if claudeStyle.GetForeground() != darkTextDimColor {
+		t.Errorf("Claude style should use dark theme dim text color")
 	}
 
 	// Switch to light theme
 	InitTheme("light")
-	lightOrangeColor := ColorOrange
+	lightTextDimColor := ColorTextDim
 
-	// The tool style cache should now use light theme orange
+	// The tool style cache should now use light theme dim text color
 	claudeStyle = GetToolStyle("claude")
-	if claudeStyle.GetForeground() != lightOrangeColor {
-		t.Errorf("Claude style should use light theme orange color after theme change")
+	if claudeStyle.GetForeground() != lightTextDimColor {
+		t.Errorf("Claude style should use light theme dim text color after theme change")
 	}
 
 	// Reset to dark for other tests
