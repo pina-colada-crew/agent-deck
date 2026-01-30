@@ -745,3 +745,97 @@ func TestClaudeCode2125_DynamicStatusPattern(t *testing.T) {
 		}
 	}
 }
+
+// =============================================================================
+// VALIDATION 7.0: Numbered Option Prompt Detection (AskUserQuestion)
+// =============================================================================
+// Bug: Numbered option prompts like "❯ 1. Yes" are not detected as waiting
+// Fix: Added "❯ 1.", "❯ 2.", etc. patterns to permissionPrompts
+
+func TestNumberedOptionPromptDetection(t *testing.T) {
+	detector := NewPromptDetector("claude")
+
+	tests := []struct {
+		name        string
+		content     string
+		wantWaiting bool
+	}{
+		// Numbered option prompts (should be detected as WAITING)
+		{
+			name: "numbered option - first selected",
+			content: `Do you want to proceed?
+❯ 1. Yes
+  2. No`,
+			wantWaiting: true,
+		},
+		{
+			name: "numbered option - second selected",
+			content: `Do you want to proceed?
+  1. Yes
+❯ 2. No`,
+			wantWaiting: true,
+		},
+		{
+			name: "numbered option with four choices",
+			content: `How should I proceed?
+❯ 1. Option A
+  2. Option B
+  3. Option C
+  4. Option D`,
+			wantWaiting: true,
+		},
+		{
+			name: "numbered option - third selected",
+			content: `Select an option:
+  1. First
+  2. Second
+❯ 3. Third
+  4. Fourth`,
+			wantWaiting: true,
+		},
+		// Question phrase detection
+		{
+			name:        "do you want to proceed phrase",
+			content:     "Do you want to proceed?",
+			wantWaiting: true,
+		},
+		{
+			name:        "would you like to proceed phrase",
+			content:     "Would you like to proceed?",
+			wantWaiting: true,
+		},
+		// Existing patterns should still work
+		{
+			name:        "existing - simple chevron prompt",
+			content:     "❯",
+			wantWaiting: true,
+		},
+		{
+			name:        "existing - yes allow once",
+			content:     "Yes, allow once",
+			wantWaiting: true,
+		},
+		// Busy indicators should NOT be detected as waiting
+		{
+			name: "busy - ctrl+c to interrupt",
+			content: `Working on request
+✳ Thinking… (ctrl+c to interrupt · 45s · 1234 tokens)`,
+			wantWaiting: false,
+		},
+		{
+			name: "busy - spinner active",
+			content: `⠙ Processing...
+Some output here`,
+			wantWaiting: false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := detector.HasPrompt(tt.content)
+			if got != tt.wantWaiting {
+				t.Errorf("HasPrompt() = %v, want %v\nContent:\n%s", got, tt.wantWaiting, tt.content)
+			}
+		})
+	}
+}

@@ -1410,7 +1410,43 @@ func (s *Session) GetStatus() (string, error) {
 		debugLog("%s: NO_LONGER_BUSY → transitioning from active", shortName)
 	}
 
-	// No busy indicator found - check acknowledged state
+	// No busy indicator found - check for Claude prompt UI
+	// If prompt UI is visible, return "waiting" even if previously acknowledged
+	s.mu.Unlock()
+	promptContent, promptErr := s.CapturePane()
+	s.mu.Lock()
+	if promptErr == nil {
+		// Check only last 5 lines for prompt UI patterns (prompt appears at bottom)
+		promptLines := strings.Split(promptContent, "\n")
+		if len(promptLines) > 5 {
+			promptLines = promptLines[len(promptLines)-5:]
+		}
+		lastLinesContent := strings.ToLower(strings.Join(promptLines, "\n"))
+		// Only match actual interactive prompts, NOT status bar mode indicators
+		// - "· tab to amend" = permission dialog help text
+		// - "enter to select ·" = numbered option help text
+		// - "❯ 1." etc = numbered option selection indicator
+		// DO NOT match "⏵⏵ accept edits" or "(shift+tab to cycle)" - those are status bar mode indicators
+		lastLinesRaw := strings.Join(promptLines, "\n")
+		hasTabAmend := strings.Contains(lastLinesContent, "· tab to amend")
+		hasEnterSelect := strings.Contains(lastLinesContent, "enter to select ·")
+		hasOption1 := strings.Contains(lastLinesRaw, "❯ 1.")
+		hasOption2 := strings.Contains(lastLinesRaw, "❯ 2.")
+		hasOption3 := strings.Contains(lastLinesRaw, "❯ 3.")
+		hasOption4 := strings.Contains(lastLinesRaw, "❯ 4.")
+		isClaudePromptUIVisible := hasTabAmend || hasEnterSelect ||
+			hasOption1 || hasOption2 || hasOption3 || hasOption4
+		if isClaudePromptUIVisible {
+			if s.lastStableStatus != "waiting" {
+				s.stateTracker.waitingSince = time.Now()
+			}
+			s.lastStableStatus = "waiting"
+			debugLog("%s: WAITING (Claude prompt UI visible)", shortName)
+			return "waiting", nil
+		}
+	}
+
+	// No prompt UI - check acknowledged state
 	if s.stateTracker.acknowledged {
 		s.lastStableStatus = "idle"
 		debugLog("%s: IDLE (acknowledged, no busy indicator)", shortName)
@@ -1498,7 +1534,34 @@ func (s *Session) getStatusFallback() (string, error) {
 		debugLog("%s: FALLBACK hash updated (no status change)", shortName)
 	}
 
-	// No busy indicator found - check acknowledged state
+	// No busy indicator found - check for Claude prompt UI
+	// If prompt UI is visible, return "waiting" even if previously acknowledged
+	// Check only last 5 lines for prompt UI patterns (prompt appears at bottom)
+	contentLines := strings.Split(content, "\n")
+	if len(contentLines) > 5 {
+		contentLines = contentLines[len(contentLines)-5:]
+	}
+	lastLinesContent := strings.ToLower(strings.Join(contentLines, "\n"))
+	lastLinesRaw := strings.Join(contentLines, "\n")
+	// Only match actual interactive prompts, NOT status bar mode indicators
+	hasTabAmend := strings.Contains(lastLinesContent, "· tab to amend")
+	hasEnterSelect := strings.Contains(lastLinesContent, "enter to select ·")
+	hasOption1 := strings.Contains(lastLinesRaw, "❯ 1.")
+	hasOption2 := strings.Contains(lastLinesRaw, "❯ 2.")
+	hasOption3 := strings.Contains(lastLinesRaw, "❯ 3.")
+	hasOption4 := strings.Contains(lastLinesRaw, "❯ 4.")
+	isClaudePromptUIVisible := hasTabAmend || hasEnterSelect ||
+		hasOption1 || hasOption2 || hasOption3 || hasOption4
+	if isClaudePromptUIVisible {
+		if s.lastStableStatus != "waiting" {
+			s.stateTracker.waitingSince = time.Now()
+		}
+		s.lastStableStatus = "waiting"
+		debugLog("%s: FALLBACK WAITING (Claude prompt UI visible)", shortName)
+		return "waiting", nil
+	}
+
+	// No prompt UI - check acknowledged state
 	if s.stateTracker.acknowledged {
 		s.lastStableStatus = "idle"
 		debugLog("%s: FALLBACK IDLE (acknowledged, no busy indicator)", shortName)
@@ -1606,10 +1669,40 @@ func (s *Session) hasBusyIndicator(content string) bool {
 	recentContent := strings.ToLower(strings.Join(lastLines, "\n"))
 
 	// ═══════════════════════════════════════════════════════════════════════
+	// IMPORTANT: Check if Claude's prompt UI is visible
+	// When prompt UI is visible, Claude is WAITING, not busy - even if old busy
+	// indicators are still in the terminal buffer above the prompt
+	// Prompt UI indicators (all lowercase since recentContent is lowercased):
+	// - "tab to amend" - permission prompts
+	// - "enter to select" - numbered option prompts
+	// - "accept edits on" - file edit acceptance prompts
+	// - "shift+tab to cycle" - edit acceptance prompts
+	// - numbered options "❯ 1." etc (these are not lowercased by ToLower)
+	// ═══════════════════════════════════════════════════════════════════════
+	// Check only last 5 lines for prompt UI (prompt appears at bottom of screen)
+	last5Lines := lastLines
+	if len(last5Lines) > 5 {
+		last5Lines = last5Lines[len(last5Lines)-5:]
+	}
+	last5Content := strings.ToLower(strings.Join(last5Lines, "\n"))
+	last5Raw := strings.Join(last5Lines, "\n")
+	// Only match actual interactive prompts, NOT status bar mode indicators
+	isClaudePromptUIVisible := strings.Contains(last5Content, "· tab to amend") ||
+		strings.Contains(last5Content, "enter to select ·") ||
+		strings.Contains(last5Raw, "❯ 1.") ||
+		strings.Contains(last5Raw, "❯ 2.") ||
+		strings.Contains(last5Raw, "❯ 3.") ||
+		strings.Contains(last5Raw, "❯ 4.")
+	if isClaudePromptUIVisible {
+		debugLog("%s: Claude prompt UI detected (last 5 lines), skipping busy checks", shortName)
+	}
+
+	// ═══════════════════════════════════════════════════════════════════════
 	// CHECK 1: "ctrl+c to interrupt" - PRIMARY indicator for Claude Code (2024+)
 	// This text ALWAYS appears when Claude is actively working
+	// SKIP if prompt UI visible (old content might still be in buffer)
 	// ═══════════════════════════════════════════════════════════════════════
-	if strings.Contains(recentContent, "ctrl+c to interrupt") {
+	if strings.Contains(recentContent, "ctrl+c to interrupt") && !isClaudePromptUIVisible {
 		debugLog("%s: BUSY_REASON=ctrl+c to interrupt", shortName)
 		return true
 	}
@@ -1619,8 +1712,9 @@ func (s *Session) hasBusyIndicator(content string) bool {
 	// Detects: "✳ Gusting… (35s · ↑ 673 tokens)" (unicode ellipsis = active)
 	// Does NOT match done: "✻ Worked for 54s" (no ellipsis)
 	// Word-list independent for future-proofing
+	// SKIP if Claude's prompt UI is visible (means waiting, not busy)
 	// ═══════════════════════════════════════════════════════════════════════
-	if claudeSpinnerActivePattern.MatchString(recentContent) {
+	if claudeSpinnerActivePattern.MatchString(recentContent) && !isClaudePromptUIVisible {
 		debugLog("%s: BUSY_REASON=claude 2.1.25+ spinner active (ellipsis pattern)", shortName)
 		return true
 	}
@@ -1628,8 +1722,9 @@ func (s *Session) hasBusyIndicator(content string) bool {
 	// ═══════════════════════════════════════════════════════════════════════
 	// CHECK 2: "esc to interrupt" - FALLBACK for older Claude Code versions
 	// Older versions showed "esc to interrupt" instead of "ctrl+c to interrupt"
+	// SKIP if Claude's prompt UI is visible (means waiting, not busy)
 	// ═══════════════════════════════════════════════════════════════════════
-	if strings.Contains(recentContent, "esc to interrupt") {
+	if strings.Contains(recentContent, "esc to interrupt") && !isClaudePromptUIVisible {
 		debugLog("%s: BUSY_REASON=esc to interrupt (fallback)", shortName)
 		return true
 	}
@@ -1637,8 +1732,10 @@ func (s *Session) hasBusyIndicator(content string) bool {
 	// ═══════════════════════════════════════════════════════════════════════
 	// CHECK 2b: "esc to cancel" - Gemini CLI busy indicator
 	// Gemini shows "esc to cancel" while actively processing
+	// BUT: Claude Code's AskUserQuestion shows "Esc to cancel" in help text
+	// SKIP if Claude prompt UI is visible
 	// ═══════════════════════════════════════════════════════════════════════
-	if strings.Contains(recentContent, "esc to cancel") {
+	if strings.Contains(recentContent, "esc to cancel") && !isClaudePromptUIVisible {
 		debugLog("%s: BUSY_REASON=esc to cancel (Gemini)", shortName)
 		return true
 	}
@@ -1748,7 +1845,8 @@ var (
 	// Claude Code 2.1.25+ active spinner: symbol + word + unicode ellipsis (U+2026)
 	// Matches: "✳ gusting…" or "· sublimating…" or "✻ cooking…"
 	// Does NOT match done state: "✻ worked for 54s" (no ellipsis)
-	claudeSpinnerActivePattern = regexp.MustCompile(`[·✳✽✶✻✢]\s*\w+…`)
+	// Requires start-of-line to avoid matching "·" used as separator in UI text
+	claudeSpinnerActivePattern = regexp.MustCompile(`(?m)^\s*[·✳✽✶✻✢]\s*\w+…`)
 
 	// Matches whimsical thinking words with timing info (e.g., "⠋ Flibbertigibbeting... (25s · 340 tokens)")
 	// Requires spinner prefix to avoid matching normal English words like "processing" or "computing"

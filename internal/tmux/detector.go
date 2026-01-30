@@ -165,6 +165,11 @@ func (d *PromptDetector) hasClaudePrompt(content string) bool {
 		"Action Required",
 		"Waiting for user confirmation",
 		"Allow execution of",
+		// AskUserQuestion numbered options (Claude Code tool output)
+		"❯ 1.", // First numbered option selected
+		"❯ 2.", // Second numbered option selected
+		"❯ 3.", // Third numbered option selected
+		"❯ 4.", // Fourth numbered option selected
 	}
 	for _, prompt := range permissionPrompts {
 		if strings.Contains(content, prompt) {
@@ -248,6 +253,9 @@ func (d *PromptDetector) hasClaudePrompt(content string) bool {
 		// Plan mode prompts
 		"Approve this plan?",
 		"Execute plan?",
+		// Full AskUserQuestion phrases
+		"Do you want to proceed",    // Common AskUserQuestion phrase
+		"Would you like to proceed", // Alternative phrasing
 	}
 	for _, prompt := range questionPrompts {
 		if strings.Contains(recentContent, prompt) {
