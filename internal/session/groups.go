@@ -585,6 +585,121 @@ func (t *GroupTree) MoveSessionToGroup(inst *Instance, newGroupPath string) {
 	t.updateGroupDefaultPath(newGroupPath)
 }
 
+// MoveGroupToParent moves a group to a new parent, updating all subgroups and sessions.
+// Returns an error string if the move is invalid (empty for success).
+// If newParentPath is empty ("" or "/"), moves to root level.
+func (t *GroupTree) MoveGroupToParent(groupPath, newParentPath string) string {
+	group, exists := t.Groups[groupPath]
+	if !exists {
+		return "group not found"
+	}
+
+	// Normalize root indicators
+	if newParentPath == "/" || newParentPath == "root" {
+		newParentPath = ""
+	}
+
+	// Cannot move the default group
+	if groupPath == DefaultGroupPath {
+		return "cannot move the default group"
+	}
+
+	// Cannot move to self
+	if newParentPath == groupPath {
+		return "cannot move group into itself"
+	}
+
+	// Cannot move to a descendant (would create cycle)
+	if newParentPath != "" && strings.HasPrefix(newParentPath, groupPath+"/") {
+		return "cannot move group into its own descendant"
+	}
+
+	// Extract the leaf name (e.g., "projects/frontend" -> "frontend")
+	leafName := extractGroupName(groupPath)
+
+	// Build new path
+	var newPath string
+	if newParentPath == "" {
+		newPath = leafName
+	} else {
+		newPath = newParentPath + "/" + leafName
+	}
+
+	// Check if target path already exists (name collision)
+	if _, exists := t.Groups[newPath]; exists && newPath != groupPath {
+		return "a group with that name already exists at the target location"
+	}
+
+	// No change needed
+	if newPath == groupPath {
+		return ""
+	}
+
+	// Ensure parent group exists (auto-create if needed)
+	if newParentPath != "" {
+		t.ensureParentGroupsExist(newPath)
+	}
+
+	// Update all sessions in the group
+	for _, sess := range group.Sessions {
+		sess.GroupPath = newPath
+	}
+
+	// Update all subgroups (groups whose path starts with groupPath + "/")
+	subgroupsToUpdate := make(map[string]*Group)
+	for path, g := range t.Groups {
+		if strings.HasPrefix(path, groupPath+"/") {
+			newSubPath := newPath + path[len(groupPath):] // Replace prefix
+			// Update sessions in subgroup
+			for _, sess := range g.Sessions {
+				sess.GroupPath = newSubPath
+			}
+			g.Path = newSubPath
+			g.Name = extractGroupName(newSubPath)
+			subgroupsToUpdate[path] = g
+		}
+	}
+
+	// Remove old subgroup entries and add with new paths
+	for oldSubPath, g := range subgroupsToUpdate {
+		delete(t.Groups, oldSubPath)
+		t.Groups[g.Path] = g
+		expanded := t.Expanded[oldSubPath]
+		delete(t.Expanded, oldSubPath)
+		t.Expanded[g.Path] = expanded
+	}
+
+	// Update the main group
+	group.Path = newPath
+	group.Name = extractGroupName(newPath)
+
+	// Update maps for main group
+	delete(t.Groups, groupPath)
+	t.Groups[newPath] = group
+	expanded := t.Expanded[groupPath]
+	delete(t.Expanded, groupPath)
+	t.Expanded[newPath] = expanded
+
+	// Assign order relative to new siblings
+	group.Order = t.getNextSiblingOrder(newParentPath)
+
+	t.rebuildGroupList()
+	return ""
+}
+
+// getNextSiblingOrder returns the next available order value for siblings at the given parent level
+func (t *GroupTree) getNextSiblingOrder(parentPath string) int {
+	maxOrder := -1
+	for _, g := range t.Groups {
+		if getParentPath(g.Path) == parentPath {
+			if g.Order > maxOrder {
+				maxOrder = g.Order
+			}
+		}
+	}
+	return maxOrder + 1
+}
+
 // sanitizeGroupName removes dangerous characters from group names
 // to prevent path traversal and other security issues
 func sanitizeGroupName(name string) string {
@@ -820,6 +935,27 @@ func (t *GroupTree) GetGroupNames() []string {
 		names[i] = g.Name
 	}
 	return names
+}
+
+// GetGroupPathsForMove returns group paths suitable for the move dialog.
+// Excludes the given group and all its descendants (invalid move targets).
+func (t *GroupTree) GetGroupPathsForMove(excludePath string) []string {
+	paths := []string{}
+	// Add root option first
+	paths = append(paths, "/")
+
+	for _, g := range t.GroupList {
+		// Skip the group itself
+		if g.Path == excludePath {
+			continue
+		}
+		// Skip descendants of the group
+		if strings.HasPrefix(g.Path, excludePath+"/") {
+			continue
+		}
+		paths = append(paths, g.Path)
+	}
+	return paths
 }
 
 // SessionCount returns total session count

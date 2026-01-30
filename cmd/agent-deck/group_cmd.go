@@ -26,6 +26,8 @@ func handleGroup(profile string, args []string) {
 		handleGroupDelete(profile, args[1:])
 	case "move", "mv":
 		handleGroupMove(profile, args[1:])
+	case "move-group", "mg":
+		handleGroupMoveGroup(profile, args[1:])
 	case "help", "--help", "-h":
 		printGroupHelp()
 		return
@@ -42,10 +44,11 @@ func printGroupHelp() {
 	fmt.Println("Usage: agent-deck group <command> [options]")
 	fmt.Println()
 	fmt.Println("Commands:")
-	fmt.Println("  list              List all groups with session counts")
-	fmt.Println("  create <name>     Create a new group")
-	fmt.Println("  delete <name>     Delete a group")
-	fmt.Println("  move <id> <group> Move session to a different group")
+	fmt.Println("  list                          List all groups with session counts")
+	fmt.Println("  create <name>                 Create a new group")
+	fmt.Println("  delete <name>                 Delete a group")
+	fmt.Println("  move <id> <group>             Move session to a different group")
+	fmt.Println("  move-group, mg <group> <parent>  Move a group to a new parent")
 	fmt.Println()
 	fmt.Println("Examples:")
 	fmt.Println("  agent-deck group list")
@@ -55,6 +58,10 @@ func printGroupHelp() {
 	fmt.Println("  agent-deck group delete work --force")
 	fmt.Println("  agent-deck group move my-project work/frontend")
 	fmt.Println("  agent-deck group move my-project \"\"          # Move to root")
+	fmt.Println("  agent-deck group move-group projects/frontend work")
+	fmt.Println("    # Moves 'projects/frontend' to become 'work/frontend'")
+	fmt.Println("  agent-deck group move-group projects/frontend /")
+	fmt.Println("    # Moves 'projects/frontend' to root level as 'frontend'")
 }
 
 // handleGroupList lists all groups with session counts and status
@@ -627,6 +634,159 @@ func handleGroupMove(profile string, args []string) {
 		"from":    fromGroup,
 		"to":      toGroup,
 	})
+}
+
+// handleGroupMoveGroup moves a group to a new parent location
+func handleGroupMoveGroup(profile string, args []string) {
+	fs := flag.NewFlagSet("group move-group", flag.ExitOnError)
+	jsonOutput := fs.Bool("json", false, "Output as JSON")
+	quiet := fs.Bool("quiet", false, "Minimal output")
+	quietShort := fs.Bool("q", false, "Minimal output (short)")
+
+	fs.Usage = func() {
+		fmt.Println("Usage: agent-deck group move-group <group> <new-parent>")
+		fmt.Println()
+		fmt.Println("Move a group to a new parent location.")
+		fmt.Println()
+		fmt.Println("Arguments:")
+		fmt.Println("  <group>        Group path to move")
+		fmt.Println("  <new-parent>   Target parent (use \"/\" or \"root\" for root level)")
+		fmt.Println()
+		fmt.Println("Options:")
+		fs.PrintDefaults()
+		fmt.Println()
+		fmt.Println("Examples:")
+		fmt.Println("  agent-deck group move-group projects/frontend work")
+		fmt.Println("    # Moves 'projects/frontend' to become 'work/frontend'")
+		fmt.Println("  agent-deck group move-group projects/frontend /")
+		fmt.Println("    # Moves 'projects/frontend' to root level as 'frontend'")
+	}
+
+	if err := fs.Parse(args); err != nil {
+		os.Exit(1)
+	}
+
+	out := NewCLIOutput(*jsonOutput, *quiet || *quietShort)
+
+	// Require both arguments
+	if fs.NArg() < 1 {
+		out.Error("Missing group path. Usage: agent-deck group move-group <group> <new-parent>", ErrCodeNotFound)
+		os.Exit(1)
+	}
+	if fs.NArg() < 2 {
+		out.Error("Missing target parent. Usage: agent-deck group move-group <group> <new-parent>", ErrCodeNotFound)
+		os.Exit(1)
+	}
+
+	groupPath := fs.Arg(0)
+	newParentPath := fs.Arg(1)
+
+	// Load storage
+	storage, err := session.NewStorageWithProfile(profile)
+	if err != nil {
+		out.Error(fmt.Sprintf("Failed to initialize storage: %v", err), ErrCodeNotFound)
+		os.Exit(1)
+	}
+
+	instances, groups, err := storage.LoadWithGroups()
+	if err != nil {
+		out.Error(fmt.Sprintf("Failed to load sessions: %v", err), ErrCodeNotFound)
+		os.Exit(1)
+	}
+
+	// Build group tree
+	groupTree := session.NewGroupTreeWithGroups(instances, groups)
+
+	// Resolve group path (support partial matching like session resolution)
+	resolvedPath := resolveGroupPath(groupTree, groupPath)
+	if resolvedPath == "" {
+		out.Error(fmt.Sprintf("Group not found: %s", groupPath), ErrCodeNotFound)
+		os.Exit(2)
+	}
+
+	// Normalize new parent path
+	normalizedParent := normalizeParentPathForMove(newParentPath)
+
+	// Perform the move
+	if errMsg := groupTree.MoveGroupToParent(resolvedPath, normalizedParent); errMsg != "" {
+		out.Error(errMsg, ErrCodeInvalidOperation)
+		os.Exit(1)
+	}
+
+	// Save changes
+	if err := storage.SaveWithGroups(groupTree.GetAllInstances(), groupTree); err != nil {
+		out.Error(fmt.Sprintf("Failed to save: %v", err), ErrCodeNotFound)
+		os.Exit(1)
+	}
+
+	// Determine new path for output message
+	leafName := extractGroupNameCLI(resolvedPath)
+	var newPath string
+	if normalizedParent == "" {
+		newPath = leafName
+	} else {
+		newPath = normalizedParent + "/" + leafName
+	}
+
+	out.Success(
+		fmt.Sprintf("Moved group '%s' to '%s'", resolvedPath, newPath),
+		map[string]interface{}{
+			"success":  true,
+			"group":    resolvedPath,
+			"from":     getParentGroupPath(resolvedPath),
+			"to":       normalizedParent,
+			"new_path": newPath,
+		},
+	)
+}
+
+// resolveGroupPath finds a group by exact path or prefix match
+func resolveGroupPath(tree *session.GroupTree, query string) string {
+	// Try exact match first
+	if _, exists := tree.Groups[query]; exists {
+		return query
+	}
+
+	// Try case-insensitive exact match
+	queryLower := strings.ToLower(query)
+	for path := range tree.Groups {
+		if strings.ToLower(path) == queryLower {
+			return path
+		}
+	}
+
+	// Try prefix match (for convenience)
+	var matches []string
+	for path := range tree.Groups {
+		if strings.HasPrefix(strings.ToLower(path), queryLower) {
+			matches = append(matches, path)
+		}
+	}
+	if len(matches) == 1 {
+		return matches[0]
+	}
+
+	return ""
+}
+
+// normalizeParentPathForMove normalizes the target parent path for move operations
+func normalizeParentPathForMove(path string) string {
+	path = strings.TrimSpace(path)
+	// Root indicators
+	if path == "/" || path == "root" || path == "" {
+		return ""
+	}
+	// Remove trailing slash
+	path = strings.TrimSuffix(path, "/")
+	return path
+}
+
+// extractGroupNameCLI extracts the leaf name from a group path (CLI helper)
+func extractGroupNameCLI(path string) string {
+	if idx := strings.LastIndex(path, "/"); idx != -1 {
+		return path[idx+1:]
+	}
+	return path
 }
 
 // getParentGroupPath returns the parent path of a group path

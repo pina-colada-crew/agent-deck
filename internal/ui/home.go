@@ -3205,11 +3205,17 @@ func (h *Home) handleMainKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return h, nil
 
 	case "m":
-		// Move session to different group
+		// Move session or group to different parent
 		if h.cursor < len(h.flatItems) {
 			item := h.flatItems[h.cursor]
 			if item.Type == session.ItemTypeSession {
 				h.groupDialog.ShowMove(h.groupTree.GetGroupNames())
+			} else if item.Type == session.ItemTypeGroup {
+				// Get available target paths (excludes self and descendants)
+				targetPaths := h.groupTree.GetGroupPathsForMove(item.Path)
+				if len(targetPaths) > 0 {
+					h.groupDialog.ShowMoveGroup(targetPaths, item.Path)
+				}
 			}
 		}
 		return h, nil
@@ -3851,6 +3857,28 @@ func (h *Home) handleGroupDialogKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 				}
 				// Invalidate preview cache since title changed
 				h.invalidatePreviewCache(sessionID)
+				h.rebuildFlatItems()
+				h.saveInstances()
+			}
+		case GroupDialogMoveGroup:
+			selectedPath := h.groupDialog.GetSelectedGroup()
+			currentPath := h.groupDialog.GetCurrentGroupPath()
+			if selectedPath != "" && currentPath != "" {
+				// Normalize "/" to empty string for root
+				newParentPath := selectedPath
+				if newParentPath == "/" {
+					newParentPath = ""
+				}
+
+				errMsg := h.groupTree.MoveGroupToParent(currentPath, newParentPath)
+				if errMsg != "" {
+					h.groupDialog.SetError(errMsg)
+					return h, nil
+				}
+
+				h.instancesMu.Lock()
+				h.instances = h.groupTree.GetAllInstances()
+				h.instancesMu.Unlock()
 				h.rebuildFlatItems()
 				h.saveInstances()
 			}
@@ -5435,6 +5463,7 @@ func (h *Home) renderHelpBarFull() string {
 			}
 			secondaryHints = []string{
 				h.helpKey("r", "Rename"),
+				h.helpKey("m", "Move"),
 				h.helpKey("d", "Delete"),
 			}
 		} else {

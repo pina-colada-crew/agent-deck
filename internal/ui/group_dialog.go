@@ -17,6 +17,7 @@ const (
 	GroupDialogRename
 	GroupDialogMove
 	GroupDialogRenameSession
+	GroupDialogMoveGroup // Mode for moving groups to a new parent
 )
 
 // GroupDialog handles group creation, renaming, and moving sessions
@@ -138,6 +139,21 @@ func (g *GroupDialog) ShowMove(groups []string) {
 	g.selected = 0
 }
 
+// ShowMoveGroup shows the dialog for moving a group to a new parent
+func (g *GroupDialog) ShowMoveGroup(targetPaths []string, currentPath string) {
+	g.visible = true
+	g.mode = GroupDialogMoveGroup
+	g.validationErr = ""
+	g.groupNames = targetPaths // Reuse groupNames for paths
+	g.groupPath = currentPath  // Store current path for reference
+	g.selected = 0
+}
+
+// GetCurrentGroupPath returns the path of the group being moved
+func (g *GroupDialog) GetCurrentGroupPath() string {
+	return g.groupPath
+}
+
 // ShowRenameSession shows the dialog for renaming a session
 func (g *GroupDialog) ShowRenameSession(sessionID, currentName string) {
 	g.visible = true
@@ -176,8 +192,8 @@ func (g *GroupDialog) GetValue() string {
 
 // Validate checks if the dialog values are valid and returns an error message if not
 func (g *GroupDialog) Validate() string {
-	if g.mode == GroupDialogMove {
-		return "" // Move mode doesn't need validation
+	if g.mode == GroupDialogMove || g.mode == GroupDialogMoveGroup {
+		return "" // Move modes don't need validation
 	}
 
 	name := strings.TrimSpace(g.nameInput.Value())
@@ -246,7 +262,7 @@ func (g *GroupDialog) SetSize(width, height int) {
 
 // Update handles input
 func (g *GroupDialog) Update(msg tea.KeyMsg) (*GroupDialog, tea.Cmd) {
-	if g.mode == GroupDialogMove {
+	if g.mode == GroupDialogMove || g.mode == GroupDialogMoveGroup {
 		switch msg.String() {
 		case "up", "k":
 			if g.selected > 0 {
@@ -335,6 +351,30 @@ func (g *GroupDialog) View() string {
 	case GroupDialogRenameSession:
 		title = "Rename Session"
 		content = g.nameInput.View()
+	case GroupDialogMoveGroup:
+		title = "Move Group To"
+		var items []string
+		for i, path := range g.groupNames {
+			// Display "/" as "Root" for clarity
+			displayName := path
+			if path == "/" {
+				displayName = "/ (Root)"
+			}
+			if i == g.selected {
+				items = append(items, lipgloss.NewStyle().
+					Foreground(ColorBg).
+					Background(ColorAccent).
+					Bold(true).
+					Padding(0, 1).
+					Render(displayName))
+			} else {
+				items = append(items, lipgloss.NewStyle().
+					Foreground(ColorText).
+					Padding(0, 1).
+					Render(displayName))
+			}
+		}
+		content = strings.Join(items, "\n")
 	}
 
 	// Responsive dialog width
