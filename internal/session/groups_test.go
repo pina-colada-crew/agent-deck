@@ -1,6 +1,7 @@
 package session
 
 import (
+	"strings"
 	"testing"
 	"time"
 )
@@ -1257,5 +1258,282 @@ func TestBranchOrderingByOrder(t *testing.T) {
 	if zebraIdx > alphaIdx {
 		t.Errorf("Zebra (Order=0) should come before Alpha (Order=1). Zebra=%d, Alpha=%d",
 			zebraIdx, alphaIdx)
+	}
+}
+
+func TestMoveGroupToParent(t *testing.T) {
+	tests := []struct {
+		name           string
+		setup          func(*GroupTree)
+		groupPath      string
+		newParentPath  string
+		expectError    string
+		expectPath     string                // Expected new path of moved group
+		expectSessions map[string]string     // session ID -> expected GroupPath
+	}{
+		{
+			name: "move subgroup to root",
+			setup: func(tree *GroupTree) {
+				tree.CreateGroup("parent")
+				tree.CreateSubgroup("parent", "child")
+				tree.Groups["parent/child"].Sessions = []*Instance{
+					{ID: "s1", GroupPath: "parent/child"},
+				}
+			},
+			groupPath:     "parent/child",
+			newParentPath: "/",
+			expectError:   "",
+			expectPath:    "child",
+			expectSessions: map[string]string{
+				"s1": "child",
+			},
+		},
+		{
+			name: "move root group under another",
+			setup: func(tree *GroupTree) {
+				tree.CreateGroup("groupA")
+				tree.CreateGroup("groupB")
+				tree.Groups["groupa"].Sessions = []*Instance{
+					{ID: "s1", GroupPath: "groupa"},
+				}
+			},
+			groupPath:     "groupa",
+			newParentPath: "groupb",
+			expectError:   "",
+			expectPath:    "groupb/groupa",
+			expectSessions: map[string]string{
+				"s1": "groupb/groupa",
+			},
+		},
+		{
+			name: "move with nested subgroups cascades",
+			setup: func(tree *GroupTree) {
+				tree.CreateGroup("projects")
+				tree.CreateSubgroup("projects", "frontend")
+				tree.CreateSubgroup("projects/frontend", "components")
+				tree.CreateGroup("work")
+				tree.Groups["projects/frontend"].Sessions = []*Instance{
+					{ID: "s1", GroupPath: "projects/frontend"},
+				}
+				tree.Groups["projects/frontend/components"].Sessions = []*Instance{
+					{ID: "s2", GroupPath: "projects/frontend/components"},
+				}
+			},
+			groupPath:     "projects/frontend",
+			newParentPath: "work",
+			expectError:   "",
+			expectPath:    "work/frontend",
+			expectSessions: map[string]string{
+				"s1": "work/frontend",
+				"s2": "work/frontend/components",
+			},
+		},
+		{
+			name: "cannot move to self",
+			setup: func(tree *GroupTree) {
+				tree.CreateGroup("mygroup")
+			},
+			groupPath:     "mygroup",
+			newParentPath: "mygroup",
+			expectError:   "cannot move group into itself",
+		},
+		{
+			name: "cannot move to descendant",
+			setup: func(tree *GroupTree) {
+				tree.CreateGroup("parent")
+				tree.CreateSubgroup("parent", "child")
+				tree.CreateSubgroup("parent/child", "grandchild")
+			},
+			groupPath:     "parent",
+			newParentPath: "parent/child/grandchild",
+			expectError:   "cannot move group into its own descendant",
+		},
+		{
+			name: "cannot move default group",
+			setup: func(tree *GroupTree) {
+				// Default group exists by default when there are sessions with empty GroupPath
+				tree.AddSession(&Instance{ID: "s1", GroupPath: ""})
+			},
+			groupPath:     DefaultGroupPath,
+			newParentPath: "somewhere",
+			expectError:   "cannot move the default group",
+		},
+		{
+			name: "move to nonexistent parent auto-creates",
+			setup: func(tree *GroupTree) {
+				tree.CreateGroup("mygroup")
+			},
+			groupPath:     "mygroup",
+			newParentPath: "new-parent/nested",
+			expectError:   "",
+			expectPath:    "new-parent/nested/mygroup",
+		},
+		{
+			name: "name collision at target",
+			setup: func(tree *GroupTree) {
+				tree.CreateGroup("source")
+				tree.CreateSubgroup("source", "child")
+				tree.CreateGroup("target")
+				tree.CreateSubgroup("target", "child") // Same name exists
+			},
+			groupPath:     "source/child",
+			newParentPath: "target",
+			expectError:   "a group with that name already exists at the target location",
+		},
+		{
+			name: "root keyword works same as slash",
+			setup: func(tree *GroupTree) {
+				tree.CreateGroup("parent")
+				tree.CreateSubgroup("parent", "child")
+			},
+			groupPath:     "parent/child",
+			newParentPath: "root",
+			expectError:   "",
+			expectPath:    "child",
+		},
+		{
+			name: "group not found",
+			setup: func(tree *GroupTree) {
+				tree.CreateGroup("existing")
+			},
+			groupPath:     "nonexistent",
+			newParentPath: "existing",
+			expectError:   "group not found",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			tree := NewGroupTree([]*Instance{})
+			if tt.setup != nil {
+				tt.setup(tree)
+			}
+
+			errMsg := tree.MoveGroupToParent(tt.groupPath, tt.newParentPath)
+
+			if tt.expectError != "" {
+				if errMsg != tt.expectError {
+					t.Errorf("expected error %q, got %q", tt.expectError, errMsg)
+				}
+				return
+			}
+
+			if errMsg != "" {
+				t.Errorf("unexpected error: %s", errMsg)
+				return
+			}
+
+			// Verify group moved to expected path
+			if _, exists := tree.Groups[tt.expectPath]; !exists {
+				t.Errorf("expected group at path %q, not found", tt.expectPath)
+			}
+
+			// Verify old path removed
+			if _, exists := tree.Groups[tt.groupPath]; exists && tt.groupPath != tt.expectPath {
+				t.Errorf("old path %q still exists", tt.groupPath)
+			}
+
+			// Verify session paths updated
+			for sessID, expectedPath := range tt.expectSessions {
+				found := false
+				for _, g := range tree.Groups {
+					for _, s := range g.Sessions {
+						if s.ID == sessID {
+							found = true
+							if s.GroupPath != expectedPath {
+								t.Errorf("session %s: expected GroupPath %q, got %q",
+									sessID, expectedPath, s.GroupPath)
+							}
+						}
+					}
+				}
+				if !found {
+					t.Errorf("session %s not found", sessID)
+				}
+			}
+		})
+	}
+}
+
+func TestMoveGroupToParentPreservesExpanded(t *testing.T) {
+	tree := NewGroupTree([]*Instance{})
+
+	tree.CreateGroup("source")
+	tree.CreateSubgroup("source", "child")
+	tree.CreateGroup("target")
+
+	// Collapse the source/child group
+	tree.CollapseGroup("source/child")
+	if tree.Expanded["source/child"] {
+		t.Error("source/child should be collapsed before move")
+	}
+
+	// Move source/child to target
+	errMsg := tree.MoveGroupToParent("source/child", "target")
+	if errMsg != "" {
+		t.Fatalf("unexpected error: %s", errMsg)
+	}
+
+	// Verify expanded state is preserved (collapsed)
+	if tree.Expanded["target/child"] {
+		t.Error("target/child should remain collapsed after move")
+	}
+}
+
+func TestGetGroupPathsForMove(t *testing.T) {
+	tree := NewGroupTree([]*Instance{})
+	tree.CreateGroup("alpha")
+	tree.CreateGroup("beta")
+	tree.CreateSubgroup("alpha", "child")
+	tree.CreateSubgroup("alpha/child", "grandchild")
+
+	// When moving "alpha", should exclude alpha and its descendants
+	paths := tree.GetGroupPathsForMove("alpha")
+
+	// Should include: "/", "beta"
+	// Should exclude: "alpha", "alpha/child", "alpha/child/grandchild"
+	for _, p := range paths {
+		if p == "alpha" || strings.HasPrefix(p, "alpha/") {
+			t.Errorf("paths should not include %q when moving alpha", p)
+		}
+	}
+
+	// Root should be first
+	if len(paths) == 0 || paths[0] != "/" {
+		t.Error("root '/' should be first in paths")
+	}
+
+	// Beta should be included
+	found := false
+	for _, p := range paths {
+		if p == "beta" {
+			found = true
+			break
+		}
+	}
+	if !found {
+		t.Error("beta should be in available paths")
+	}
+}
+
+func TestGetGroupPathsForMoveIncludesDefaultGroup(t *testing.T) {
+	tree := NewGroupTree([]*Instance{})
+
+	// Add session to create the default group
+	tree.AddSession(&Instance{ID: "s1", GroupPath: ""})
+	tree.CreateGroup("other")
+
+	// When moving "other", should include default group
+	paths := tree.GetGroupPathsForMove("other")
+
+	foundDefault := false
+	for _, p := range paths {
+		if p == DefaultGroupPath {
+			foundDefault = true
+			break
+		}
+	}
+	if !foundDefault {
+		t.Errorf("default group %q should be in available paths", DefaultGroupPath)
 	}
 }
