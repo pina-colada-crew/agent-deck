@@ -4399,17 +4399,17 @@ func (h *Home) renderFilterBar() string {
 		pills = append(pills, inactivePillStyle.Render(allLabel))
 	}
 
-	// Running pill (green when active, dim if 0)
+	// Running pill (blue when active, dim if 0)
 	runningLabel := fmt.Sprintf("● %d", running)
 	if h.statusFilter == session.StatusRunning {
 		pills = append(pills, lipgloss.NewStyle().
 			Foreground(ColorBg).
-			Background(ColorGreen).
+			Background(ColorAccent). // Blue for running
 			Bold(true).
 			Padding(0, 1).Render(runningLabel))
 	} else if running > 0 {
 		pills = append(pills, lipgloss.NewStyle().
-			Foreground(ColorGreen).
+			Foreground(ColorAccent). // Blue for running
 			Background(ColorSurface).
 			Padding(0, 1).Render(runningLabel))
 	} else {
@@ -4433,12 +4433,12 @@ func (h *Home) renderFilterBar() string {
 		pills = append(pills, dimPillStyle.Render(waitingLabel))
 	}
 
-	// Idle pill (gray when active)
-	idleLabel := fmt.Sprintf("○ %d", idle)
+	// Idle pill (green when active)
+	idleLabel := fmt.Sprintf("● %d", idle)
 	if h.statusFilter == session.StatusIdle {
 		pills = append(pills, lipgloss.NewStyle().
 			Foreground(ColorBg).
-			Background(ColorTextDim).
+			Background(ColorGreen).
 			Bold(true).
 			Padding(0, 1).Render(idleLabel))
 	} else if idle > 0 {
@@ -4600,13 +4600,13 @@ func (h *Home) View() string {
 	statsSep := lipgloss.NewStyle().Foreground(ColorBorder).Render(" • ")
 
 	if running > 0 {
-		statsParts = append(statsParts, lipgloss.NewStyle().Foreground(ColorGreen).Render(fmt.Sprintf("● %d running", running)))
+		statsParts = append(statsParts, lipgloss.NewStyle().Foreground(ColorAccent).Render(fmt.Sprintf("● %d running", running))) // Blue for running
 	}
 	if waiting > 0 {
 		statsParts = append(statsParts, lipgloss.NewStyle().Foreground(ColorYellow).Render(fmt.Sprintf("◐ %d waiting", waiting)))
 	}
 	if idle > 0 {
-		statsParts = append(statsParts, lipgloss.NewStyle().Foreground(ColorText).Render(fmt.Sprintf("○ %d idle", idle)))
+		statsParts = append(statsParts, lipgloss.NewStyle().Foreground(ColorGreen).Render(fmt.Sprintf("● %d idle", idle))) // Green for idle
 	}
 	if errored > 0 {
 		statsParts = append(statsParts, lipgloss.NewStyle().Foreground(ColorRed).Render(fmt.Sprintf("✕ %d error", errored)))
@@ -5770,13 +5770,13 @@ func (h *Home) renderSessionItem(b *strings.Builder, item session.Item, selected
 		statusIcon = "◐"
 		statusStyle = SessionStatusWaiting
 	case session.StatusIdle:
-		statusIcon = "○"
+		statusIcon = "●" // Filled green circle for completed/done
 		statusStyle = SessionStatusIdle
 	case session.StatusError:
 		statusIcon = "✕"
 		statusStyle = SessionStatusError
 	default:
-		statusIcon = "○"
+		statusIcon = "●" // Filled green circle for completed/done
 		statusStyle = SessionStatusIdle
 	}
 
@@ -6082,13 +6082,13 @@ func (h *Home) renderSessionInfoCard(inst *session.Instance, width, height int) 
 	var statusColor lipgloss.Color
 	switch inst.Status {
 	case session.StatusRunning:
-		statusColor = ColorGreen
+		statusColor = ColorAccent // Blue - active work
 	case session.StatusWaiting:
 		statusColor = ColorYellow
 	case session.StatusError:
 		statusColor = ColorRed
 	default:
-		statusColor = ColorTextDim
+		statusColor = ColorGreen // Green - idle/completed
 	}
 	statusStyle := lipgloss.NewStyle().Foreground(statusColor)
 	b.WriteString(fmt.Sprintf("%s %s\n", labelStyle.Render("Status:"), statusStyle.Render(string(inst.Status))))
@@ -6154,12 +6154,12 @@ func (h *Home) renderPreviewPane(width, height int) string {
 	selected := item.Session
 
 	// Session info header box
-	statusIcon := "○"
-	statusColor := ColorTextDim
+	statusIcon := "●"                // Filled green circle for idle/completed (default)
+	statusColor := ColorGreen // Green - idle/completed (default)
 	switch selected.Status {
 	case session.StatusRunning:
 		statusIcon = "●"
-		statusColor = ColorGreen
+		statusColor = ColorAccent // Blue - active work
 	case session.StatusWaiting:
 		statusIcon = "◐"
 		statusColor = ColorYellow
@@ -6924,13 +6924,13 @@ func (h *Home) renderGroupPreview(group *session.Group, width, height int) strin
 	// Compact status line (inline, not badges)
 	var statuses []string
 	if running > 0 {
-		statuses = append(statuses, lipgloss.NewStyle().Foreground(ColorGreen).Render(fmt.Sprintf("● %d running", running)))
+		statuses = append(statuses, lipgloss.NewStyle().Foreground(ColorAccent).Render(fmt.Sprintf("● %d running", running))) // Blue for running
 	}
 	if waiting > 0 {
 		statuses = append(statuses, lipgloss.NewStyle().Foreground(ColorYellow).Render(fmt.Sprintf("◐ %d waiting", waiting)))
 	}
 	if idle > 0 {
-		statuses = append(statuses, lipgloss.NewStyle().Foreground(ColorText).Render(fmt.Sprintf("○ %d idle", idle)))
+		statuses = append(statuses, lipgloss.NewStyle().Foreground(ColorGreen).Render(fmt.Sprintf("● %d idle", idle)))
 	}
 	if errored > 0 {
 		statuses = append(statuses, lipgloss.NewStyle().Foreground(ColorRed).Render(fmt.Sprintf("✕ %d error", errored)))
@@ -6963,11 +6963,11 @@ func (h *Home) renderGroupPreview(group *session.Group, width, height int) strin
 			}
 
 			// Status icon
-			statusIcon := "○"
-			statusColor := ColorTextDim
+			statusIcon := "●"         // Filled green circle for idle/completed (default)
+			statusColor := ColorGreen // Green - idle/completed (default)
 			switch sess.Status {
 			case session.StatusRunning:
-				statusIcon, statusColor = "●", ColorGreen
+				statusIcon, statusColor = "●", ColorAccent // Blue - active work
 			case session.StatusWaiting:
 				statusIcon, statusColor = "◐", ColorYellow
 			case session.StatusError:
