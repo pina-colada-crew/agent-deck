@@ -350,6 +350,7 @@ type StateTracker struct {
 type Session struct {
 	Name        string
 	DisplayName string
+	GroupName   string // Group name for status bar display (e.g., "devops" from "projects/devops")
 	WorkDir     string
 	Command     string
 	Created     time.Time
@@ -782,26 +783,31 @@ func (s *Session) Exists() bool {
 // NOTE: status-left is reserved for the notification bar showing waiting sessions
 // This function only configures status-right to avoid overwriting notification bar
 func (s *Session) ConfigureStatusBar() {
-	// Get short folder name from WorkDir
-	folderName := filepath.Base(s.WorkDir)
-	if folderName == "" || folderName == "." {
-		folderName = "~"
+	// Right side: group | session | detach hint
+	var rightStatus string
+	if s.GroupName != "" {
+		// Full format with group: "group │ session │ ctrl+q detach"
+		rightStatus = fmt.Sprintf("%s │ %s │ #[fg=#565f89]ctrl+q detach#[default] ", s.GroupName, s.DisplayName)
+	} else {
+		// No group: "session │ ctrl+q detach"
+		rightStatus = fmt.Sprintf("%s │ #[fg=#565f89]ctrl+q detach#[default] ", s.DisplayName)
 	}
 
-	// Right side: detach hint + session title with folder path
-	// The hint uses subtle gray (#565f89) so it doesn't compete with session info
-	rightStatus := fmt.Sprintf("#[fg=#565f89]ctrl+q detach#[default] │ 📁 %s | %s ", s.DisplayName, folderName)
+	// Window format: [1] zsh* instead of default 1:zsh*
+	// Provides visual consistency with notification bar format
+	windowFormat := "[#{window_index}] #{window_name}#{window_flags}"
 
-	// PERFORMANCE: Batch all 5 status bar options into single subprocess call
-	// Uses tmux command chaining with \; separator (73% reduction in subprocess calls)
-	// Before: 5 separate exec.Command calls = 5 subprocess spawns
-	// After: 1 exec.Command call = 1 subprocess spawn
+	// PERFORMANCE: Batch all status bar options into single subprocess call
+	// Uses tmux command chaining with \; separator
 	cmd := exec.Command("tmux",
 		"set-option", "-t", s.Name, "status", "on", ";",
 		"set-option", "-t", s.Name, "status-style", "bg=#1a1b26,fg=#a9b1d6", ";",
 		"set-option", "-t", s.Name, "status-left-length", "120", ";",
 		"set-option", "-t", s.Name, "status-right", rightStatus, ";",
-		"set-option", "-t", s.Name, "status-right-length", "80")
+		"set-option", "-t", s.Name, "status-right-length", "80", ";",
+		// Custom window format for consistent [N] style
+		"set-option", "-t", s.Name, "window-status-format", windowFormat, ";",
+		"set-option", "-t", s.Name, "window-status-current-format", windowFormat)
 	_ = cmd.Run()
 }
 
@@ -2567,6 +2573,13 @@ func GetAttachedSessions() ([]string, error) {
 	return sessions, nil
 }
 
+// shiftKeyMap maps numbers 1-6 to their Shift equivalents (US keyboard)
+// Used for waiting session shortcuts to avoid conflict with window selection
+var shiftKeyMap = map[string]string{
+	"1": "!", "2": "@", "3": "#",
+	"4": "$", "5": "%", "6": "^",
+}
+
 // BindSwitchKey binds a number key to switch to target session.
 // Uses prefix table (default) so Ctrl+b N works.
 // The key should be a single character like "1", "2", etc.
@@ -2576,15 +2589,23 @@ func BindSwitchKey(key, targetSession string) error {
 	return cmd.Run()
 }
 
-// BindSwitchKeyWithAck binds a number key to switch to target session AND
+// BindSwitchKeyWithAck binds a shift-key (e.g., "!" for key "1") to switch to target session AND
 // writes a signal file so agent-deck can acknowledge the session was selected.
-// This enables proper acknowledgment when user presses Ctrl+b 1-6 shortcuts.
+// This enables proper acknowledgment when user presses Ctrl+b ! shortcuts.
+// The shift keys are used to avoid conflict with tmux window selection (Ctrl+b 1-9).
 func BindSwitchKeyWithAck(key, targetSession, sessionID string) error {
+	// Convert number to shift key (e.g., "1" -> "!")
+	shiftKey := key
+	if mapped, ok := shiftKeyMap[key]; ok {
+		shiftKey = mapped
+	}
+
 	// Get signal file path
 	signalFile, err := GetAckSignalPath()
 	if err != nil {
 		// Fall back to simple binding if we can't get the path
-		return BindSwitchKey(key, targetSession)
+		cmd := exec.Command("tmux", "bind-key", shiftKey, "switch-client", "-t", targetSession)
+		return cmd.Run()
 	}
 
 	// Create a compound command that:
@@ -2592,7 +2613,7 @@ func BindSwitchKeyWithAck(key, targetSession, sessionID string) error {
 	// 2. Switches to the target session
 	script := fmt.Sprintf("echo '%s' > '%s' && tmux switch-client -t '%s'",
 		sessionID, signalFile, targetSession)
-	cmd := exec.Command("tmux", "bind-key", key, "run-shell", script)
+	cmd := exec.Command("tmux", "bind-key", shiftKey, "run-shell", script)
 	return cmd.Run()
 }
 
@@ -2624,18 +2645,18 @@ func ReadAndClearAckSignal() string {
 	return strings.TrimSpace(string(data))
 }
 
-// UnbindKey removes a key binding and restores default behavior.
-// After unbinding, attempts to restore the default behavior where number keys
-// select windows. The restore is best-effort since it may fail in environments
-// without windows (e.g., CI) and agent-deck rebinds keys every 2s anyway.
+// UnbindKey removes a shift-key binding.
+// The key parameter is the number (1-6), which is converted to shift symbol (!, @, etc.).
+// Shift keys have no default binding to restore.
 func UnbindKey(key string) error {
-	// First unbind our custom binding
-	_ = exec.Command("tmux", "unbind-key", key).Run()
+	// Convert number to shift key
+	shiftKey := key
+	if mapped, ok := shiftKeyMap[key]; ok {
+		shiftKey = mapped
+	}
 
-	// Best-effort restore default: number keys select windows
-	// bind-key 1 select-window -t :1
-	_ = exec.Command("tmux", "bind-key", key, "select-window", "-t", ":"+key).Run()
-	return nil
+	// Just unbind - shift keys have no default binding to restore
+	return exec.Command("tmux", "unbind-key", shiftKey).Run()
 }
 
 // GetActiveSession returns the session name the user is currently attached to.

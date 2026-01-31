@@ -1527,6 +1527,8 @@ func (h *Home) backgroundStatusUpdate() {
 	for _, inst := range instances {
 		if tmuxSess := inst.GetTmuxSession(); tmuxSess != nil {
 			if !tmuxSess.IsConfigured() && tmuxSess.Exists() {
+				// Sync display name first to set GroupName before ConfigureStatusBar runs
+				inst.SyncTmuxDisplayName()
 				tmuxSess.EnsureConfigured()
 				inst.SyncSessionIDsToTmux()
 				break // Only one per tick to avoid blocking
@@ -4211,6 +4213,8 @@ func (h *Home) attachSession(inst *session.Instance) tea.Cmd {
 	// PERFORMANCE: Ensure tmux session is configured on first attach
 	// This runs deferred EnablePipePane, ConfigureStatusBar, EnableMouseMode
 	// which were skipped during lazy loading for TUI startup performance
+	// Sync display name first to set GroupName before ConfigureStatusBar runs
+	inst.SyncTmuxDisplayName()
 	tmuxSess.EnsureConfigured()
 
 	// Sync session IDs to tmux environment for resume functionality
