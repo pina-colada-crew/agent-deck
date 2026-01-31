@@ -29,7 +29,6 @@ type NewDialog struct {
 	parentGroupName      string
 	pathSuggestions      []string // stores all available path suggestions
 	pathSuggestionCursor int      // tracks selected suggestion in dropdown
-	suggestionNavigated  bool     // tracks if user explicitly navigated suggestions
 	// Worktree support
 	worktreeEnabled bool
 	branchInput     textinput.Model
@@ -113,9 +112,8 @@ func (d *NewDialog) ShowInGroup(groupPath, groupName, defaultPath string) {
 	d.validationErr = ""
 	d.nameInput.SetValue("")
 	d.nameInput.Focus()
-	d.suggestionNavigated = false // reset on show
-	d.pathSuggestionCursor = 0    // reset cursor too
-	d.pathCycler.Reset()          // clear stale autocomplete matches from previous show
+	d.pathSuggestionCursor = 0 // reset cursor too
+	d.pathCycler.Reset()       // clear stale autocomplete matches from previous show
 	d.pathInput.Blur()
 	d.claudeOptions.Blur()
 	// Keep commandCursor at previously set default (don't reset to 0)
@@ -409,8 +407,8 @@ func (d *NewDialog) Update(msg tea.Msg) (*NewDialog, tea.Cmd) {
 				// If path is complete or no matches found - fall through to normal navigation
 			}
 
-			// On path field: apply selected suggestion ONLY if user explicitly navigated to one (fallback for Ctrl+N/P)
-			if d.focusIndex == 1 && d.suggestionNavigated && len(d.pathSuggestions) > 0 {
+			// On path field: apply selected suggestion
+			if d.focusIndex == 1 && len(d.pathSuggestions) > 0 {
 				if d.pathSuggestionCursor < len(d.pathSuggestions) {
 					d.pathInput.SetValue(d.pathSuggestions[d.pathSuggestionCursor])
 					d.pathInput.SetCursor(len(d.pathInput.Value()))
@@ -428,17 +426,12 @@ func (d *NewDialog) Update(msg tea.Msg) (*NewDialog, tea.Cmd) {
 				d.focusIndex = 0
 				d.updateFocus()
 			}
-			// Reset navigation flag when leaving path field
-			if d.focusIndex != 1 {
-				d.suggestionNavigated = false
-			}
 			return d, cmd
 
 		case "ctrl+n":
 			// Next suggestion (when on path field)
 			if d.focusIndex == 1 && len(d.pathSuggestions) > 0 {
 				d.pathSuggestionCursor = (d.pathSuggestionCursor + 1) % len(d.pathSuggestions)
-				d.suggestionNavigated = true // user explicitly navigated
 				return d, nil
 			}
 
@@ -449,7 +442,6 @@ func (d *NewDialog) Update(msg tea.Msg) (*NewDialog, tea.Cmd) {
 				if d.pathSuggestionCursor < 0 {
 					d.pathSuggestionCursor = len(d.pathSuggestions) - 1
 				}
-				d.suggestionNavigated = true // user explicitly navigated
 				return d, nil
 			}
 
@@ -550,9 +542,8 @@ func (d *NewDialog) Update(msg tea.Msg) (*NewDialog, tea.Cmd) {
 	case 1:
 		oldValue := d.pathInput.Value()
 		d.pathInput, cmd = d.pathInput.Update(msg)
-		// Reset navigation if user typed something new
+		// Reset cursor if user typed something new
 		if d.pathInput.Value() != oldValue {
-			d.suggestionNavigated = false
 			d.pathSuggestionCursor = 0
 			d.pathCycler.Reset()
 		}
