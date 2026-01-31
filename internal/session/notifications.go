@@ -8,6 +8,13 @@ import (
 	"time"
 )
 
+// shiftKeyDisplay maps assigned keys (1-6) to their shift symbol equivalents for display
+// Matches the actual tmux key binding (Ctrl+b ! for session 1, etc.)
+var shiftKeyDisplay = map[string]string{
+	"1": "!", "2": "@", "3": "#",
+	"4": "$", "5": "%", "6": "^",
+}
+
 // NotificationEntry represents a waiting session in the notification bar
 type NotificationEntry struct {
 	SessionID    string
@@ -152,16 +159,24 @@ func (nm *NotificationManager) FormatBar() string {
 	defer nm.mu.RUnlock()
 
 	if len(nm.entries) == 0 {
-		return ""
+		return "" // Empty - let native window list show without prefix
 	}
 
 	var parts []string
 	for _, e := range nm.entries {
-		// No truncation - show full title, tmux will handle overflow
-		parts = append(parts, fmt.Sprintf("[%s] %s", e.AssignedKey, e.Title))
+		// Convert "1" -> "!" for display (matches actual Ctrl+b shortcut)
+		displayKey := e.AssignedKey
+		if mapped, ok := shiftKeyDisplay[e.AssignedKey]; ok {
+			displayKey = mapped
+		}
+		// [!] + yellow ◐ (matches TUI waiting indicator) + session name
+		// #[fg=#e0af68] = tmux color format for yellow (ColorYellow from styles.go)
+		// #[default] resets to status bar default color
+		parts = append(parts, fmt.Sprintf("[%s] #[fg=#e0af68]◐#[default] %s", displayKey, e.Title))
 	}
 
-	return "⚡ " + strings.Join(parts, " ")
+	// "Waiting: [!] ◐ sess1  [@] ◐ sess2    Windows: " - double space between entries, then Windows label
+	return "Waiting: " + strings.Join(parts, "  ") + "    Windows: "
 }
 
 // SyncFromInstances updates notifications based on current instance states

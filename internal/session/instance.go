@@ -2534,6 +2534,7 @@ func (i *Instance) GetTmuxSession() *tmux.Session {
 func (i *Instance) SyncTmuxDisplayName() {
 	if tmuxSess := i.GetTmuxSession(); tmuxSess != nil && tmuxSess.Exists() {
 		tmuxSess.DisplayName = i.Title
+		tmuxSess.GroupName = extractGroupName(i.GroupPath)
 		tmuxSess.ConfigureStatusBar()
 	}
 }
