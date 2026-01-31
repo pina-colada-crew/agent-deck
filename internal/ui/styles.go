@@ -22,20 +22,23 @@ var darkColors = struct {
 	Bg, Surface, Border, Text, TextDim  lipgloss.Color
 	Accent, Purple, Cyan, Green, Yellow lipgloss.Color
 	Orange, Red, Comment                lipgloss.Color
+	CyanMuted, PurpleMuted              lipgloss.Color
 }{
-	Bg:      lipgloss.Color("#1a1b26"),
-	Surface: lipgloss.Color("#24283b"),
-	Border:  lipgloss.Color("#414868"),
-	Text:    lipgloss.Color("#c0caf5"),
-	TextDim: lipgloss.Color("#787fa0"),
-	Accent:  lipgloss.Color("#7aa2f7"),
-	Purple:  lipgloss.Color("#bb9af7"),
-	Cyan:    lipgloss.Color("#7dcfff"),
-	Green:   lipgloss.Color("#9ece6a"),
-	Yellow:  lipgloss.Color("#e0af68"),
-	Orange:  lipgloss.Color("#ff9e64"),
-	Red:     lipgloss.Color("#f7768e"),
-	Comment: lipgloss.Color("#787fa0"),
+	Bg:          lipgloss.Color("#1a1b26"),
+	Surface:     lipgloss.Color("#24283b"),
+	Border:      lipgloss.Color("#414868"),
+	Text:        lipgloss.Color("#c0caf5"),
+	TextDim:     lipgloss.Color("#787fa0"),
+	Accent:      lipgloss.Color("#7aa2f7"),
+	Purple:      lipgloss.Color("#bb9af7"),
+	Cyan:        lipgloss.Color("#7dcfff"),
+	Green:       lipgloss.Color("#9ece6a"),
+	Yellow:      lipgloss.Color("#e0af68"),
+	Orange:      lipgloss.Color("#ff9e64"),
+	Red:         lipgloss.Color("#f7768e"),
+	Comment:     lipgloss.Color("#787fa0"),
+	CyanMuted:   lipgloss.Color("#6a9fb5"), // Muted cyan for group names
+	PurpleMuted: lipgloss.Color("#9585b0"), // Muted purple for selection
 }
 
 // Light Theme - Tokyo Night Light variant
@@ -43,37 +46,42 @@ var lightColors = struct {
 	Bg, Surface, Border, Text, TextDim  lipgloss.Color
 	Accent, Purple, Cyan, Green, Yellow lipgloss.Color
 	Orange, Red, Comment                lipgloss.Color
+	CyanMuted, PurpleMuted              lipgloss.Color
 }{
-	Bg:      lipgloss.Color("#d5d6db"),
-	Surface: lipgloss.Color("#e9e9ec"),
-	Border:  lipgloss.Color("#9699a3"),
-	Text:    lipgloss.Color("#343b58"),
-	TextDim: lipgloss.Color("#6a6d7c"),
-	Accent:  lipgloss.Color("#34548a"),
-	Purple:  lipgloss.Color("#7847bd"),
-	Cyan:    lipgloss.Color("#166775"),
-	Green:   lipgloss.Color("#485e30"),
-	Yellow:  lipgloss.Color("#8f5e15"),
-	Orange:  lipgloss.Color("#965027"),
-	Red:     lipgloss.Color("#8c4351"),
-	Comment: lipgloss.Color("#6a6d7c"),
+	Bg:          lipgloss.Color("#d5d6db"),
+	Surface:     lipgloss.Color("#e9e9ec"),
+	Border:      lipgloss.Color("#9699a3"),
+	Text:        lipgloss.Color("#343b58"),
+	TextDim:     lipgloss.Color("#6a6d7c"),
+	Accent:      lipgloss.Color("#34548a"),
+	Purple:      lipgloss.Color("#7847bd"),
+	Cyan:        lipgloss.Color("#166775"),
+	Green:       lipgloss.Color("#485e30"),
+	Yellow:      lipgloss.Color("#8f5e15"),
+	Orange:      lipgloss.Color("#965027"),
+	Red:         lipgloss.Color("#8c4351"),
+	Comment:     lipgloss.Color("#6a6d7c"),
+	CyanMuted:   lipgloss.Color("#4a7a85"), // Muted cyan for group names
+	PurpleMuted: lipgloss.Color("#6a5a80"), // Muted purple for selection
 }
 
 // Active color variables (set by InitTheme)
 var (
-	ColorBg      lipgloss.Color
-	ColorSurface lipgloss.Color
-	ColorBorder  lipgloss.Color
-	ColorText    lipgloss.Color
-	ColorTextDim lipgloss.Color
-	ColorAccent  lipgloss.Color
-	ColorPurple  lipgloss.Color
-	ColorCyan    lipgloss.Color
-	ColorGreen   lipgloss.Color
-	ColorYellow  lipgloss.Color
-	ColorOrange  lipgloss.Color
-	ColorRed     lipgloss.Color
-	ColorComment lipgloss.Color
+	ColorBg          lipgloss.Color
+	ColorSurface     lipgloss.Color
+	ColorBorder      lipgloss.Color
+	ColorText        lipgloss.Color
+	ColorTextDim     lipgloss.Color
+	ColorAccent      lipgloss.Color
+	ColorPurple      lipgloss.Color
+	ColorCyan        lipgloss.Color
+	ColorGreen       lipgloss.Color
+	ColorYellow      lipgloss.Color
+	ColorOrange      lipgloss.Color
+	ColorRed         lipgloss.Color
+	ColorComment     lipgloss.Color
+	ColorCyanMuted   lipgloss.Color
+	ColorPurpleMuted lipgloss.Color
 )
 
 // InitTheme sets the active color palette based on theme name
@@ -94,6 +102,8 @@ func InitTheme(theme string) {
 		ColorOrange = lightColors.Orange
 		ColorRed = lightColors.Red
 		ColorComment = lightColors.Comment
+		ColorCyanMuted = lightColors.CyanMuted
+		ColorPurpleMuted = lightColors.PurpleMuted
 	} else {
 		currentTheme = ThemeDark
 		ColorBg = darkColors.Bg
@@ -109,6 +119,8 @@ func InitTheme(theme string) {
 		ColorOrange = darkColors.Orange
 		ColorRed = darkColors.Red
 		ColorComment = darkColors.Comment
+		ColorCyanMuted = darkColors.CyanMuted
+		ColorPurpleMuted = darkColors.PurpleMuted
 	}
 	// Reinitialize styles with new colors
 	initStyles()
@@ -305,7 +317,7 @@ func initStyles() {
 
 	HighlightStyle = lipgloss.NewStyle().
 		Foreground(ColorBg).
-		Background(ColorPurple). // Purple selection to avoid conflict with blue running status
+		Background(ColorAccent). // Blue selection
 		Bold(true)
 
 	DimStyle = lipgloss.NewStyle().
@@ -470,42 +482,42 @@ func initStyles() {
 
 	SessionItemSelectedStyle = lipgloss.NewStyle().
 		Foreground(ColorBg).
-		Background(ColorPurple). // Purple selection
+		Background(ColorAccent). // Blue selection
 		Bold(true).
 		PaddingLeft(0)
 
 	// Tree connector styles
 	TreeConnectorStyle = lipgloss.NewStyle().Foreground(ColorText)
-	TreeConnectorSelStyle = lipgloss.NewStyle().Foreground(ColorBg).Background(ColorPurple) // Purple selection
+	TreeConnectorSelStyle = lipgloss.NewStyle().Foreground(ColorBg).Background(ColorAccent) // Blue selection
 
 	// Session status indicator styles
 	SessionStatusRunning = lipgloss.NewStyle().Foreground(ColorAccent) // Blue - active work
 	SessionStatusWaiting = lipgloss.NewStyle().Foreground(ColorYellow)
 	SessionStatusIdle = lipgloss.NewStyle().Foreground(ColorGreen) // Green - completed/done
 	SessionStatusError = lipgloss.NewStyle().Foreground(ColorRed)
-	SessionStatusSelStyle = lipgloss.NewStyle().Foreground(ColorBg).Background(ColorPurple) // Purple selection
+	SessionStatusSelStyle = lipgloss.NewStyle().Foreground(ColorBg).Background(ColorAccent) // Blue selection
 
 	// Session title styles by state
 	SessionTitleDefault = lipgloss.NewStyle().Foreground(ColorText)
 	SessionTitleActive = lipgloss.NewStyle().Foreground(ColorText).Bold(true)
 	SessionTitleError = lipgloss.NewStyle().Foreground(ColorText).Underline(true)
-	SessionTitleSelStyle = lipgloss.NewStyle().Bold(true).Foreground(ColorBg).Background(ColorPurple) // Purple selection
+	SessionTitleSelStyle = lipgloss.NewStyle().Bold(true).Foreground(ColorBg).Background(ColorAccent) // Blue selection
 
 	// Selection indicator
-	SessionSelectionPrefix = lipgloss.NewStyle().Foreground(ColorPurple).Bold(true) // Purple selection arrow
+	SessionSelectionPrefix = lipgloss.NewStyle().Foreground(ColorAccent).Bold(true) // Blue selection arrow
 
 	// Group item styles
 	GroupExpandStyle = lipgloss.NewStyle().Foreground(ColorText)
-	GroupNameStyle = lipgloss.NewStyle().Bold(true).Foreground(ColorCyan)
+	GroupNameStyle = lipgloss.NewStyle().Bold(true).Foreground(ColorCyanMuted)
 	GroupCountStyle = lipgloss.NewStyle().Foreground(ColorText)
 	GroupHotkeyStyle = lipgloss.NewStyle().Foreground(ColorComment)
 	GroupStatusRunning = lipgloss.NewStyle().Foreground(ColorAccent) // Blue - active work
 	GroupStatusWaiting = lipgloss.NewStyle().Foreground(ColorYellow)
 
-	// Group selected styles - Purple selection
-	GroupNameSelStyle = lipgloss.NewStyle().Bold(true).Foreground(ColorBg).Background(ColorPurple)
-	GroupCountSelStyle = lipgloss.NewStyle().Foreground(ColorBg).Background(ColorPurple)
-	GroupExpandSelStyle = lipgloss.NewStyle().Foreground(ColorBg).Background(ColorPurple)
+	// Group selected styles - Blue selection
+	GroupNameSelStyle = lipgloss.NewStyle().Bold(true).Foreground(ColorBg).Background(ColorAccent)
+	GroupCountSelStyle = lipgloss.NewStyle().Foreground(ColorBg).Background(ColorAccent)
+	GroupExpandSelStyle = lipgloss.NewStyle().Foreground(ColorBg).Background(ColorAccent)
 
 	// ToolStyleCache - reinitialize with current theme colors
 	// All tools use dim text to make status indicators (running/waiting) more prominent
