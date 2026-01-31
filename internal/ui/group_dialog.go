@@ -303,7 +303,7 @@ func (g *GroupDialog) View() string {
 		if g.parentName != "" {
 			title = "Create Subgroup"
 			parentInfo := lipgloss.NewStyle().
-				Foreground(ColorCyan).
+				Foreground(ColorCyanMuted).
 				Render("Parent: " + g.parentName)
 			content = parentInfo + "\n\n" + g.nameInput.View()
 		} else {
