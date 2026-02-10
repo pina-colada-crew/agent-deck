@@ -1036,6 +1036,18 @@ func (s *Session) CaptureFullHistory() (string, error) {
 	return string(output), nil
 }
 
+// CaptureFullHistoryWithColors captures scrollback history with ANSI color codes preserved
+func (s *Session) CaptureFullHistoryWithColors() (string, error) {
+	// Same as CaptureFullHistory but with -e flag to preserve escape sequences (colors)
+	// Used when we need to display the history with syntax highlighting intact
+	cmd := exec.Command("tmux", "capture-pane", "-t", s.Name, "-p", "-e", "-J", "-S", "-2000")
+	output, err := cmd.Output()
+	if err != nil {
+		return "", fmt.Errorf("failed to capture history with colors: %w", err)
+	}
+	return string(output), nil
+}
+
 // HasUpdated checks if the pane content has changed since last check
 func (s *Session) HasUpdated() (bool, error) {
 	content, err := s.CapturePane()
