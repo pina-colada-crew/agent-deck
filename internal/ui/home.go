@@ -4296,8 +4296,42 @@ type attachCmd struct {
 }
 
 func (a attachCmd) Run() error {
-	// NOTE: Screen clearing is ONLY done in the tea.Exec callback (after Attach returns)
-	// Removing clear screen here prevents double-clearing which corrupts terminal state
+	// Sync terminal scrollback with tmux's scrollback to prevent content bleeding
+	// and enable seamless mouse scrolling through session history.
+	//
+	// The problem: When BubbleTea exits alternate screen, the terminal restores
+	// its saved scrollback (from before agent-deck started), causing content from
+	// other sessions to appear. We fix this by:
+	// 1. Capturing the tmux session's scrollback history
+	// 2. Clearing the terminal's scrollback
+	// 3. Printing the tmux history to the terminal
+	// 4. Then attaching (tmux takes over from current screen position)
+	//
+	// This makes the terminal's scrollback match tmux's, so mouse scroll works naturally.
+	//
+	// Terminal compatibility:
+	// - ESC]1337;ClearScrollback BEL: iTerm2 proprietary (ignored by other terminals)
+	// - ESC[3J: Standard xterm clear scrollback (works on most modern terminals:
+	//   Terminal.app, Alacritty, Kitty, WezTerm, GNOME Terminal, Windows Terminal)
+	// - ESC[2J ESC[H: Universal clear screen + cursor home
+	if tty, err := os.OpenFile("/dev/tty", os.O_WRONLY, 0); err == nil {
+		// Capture tmux's scrollback history with colors preserved (last 2000 lines)
+		history, err := a.session.CaptureFullHistoryWithColors()
+		if err == nil && history != "" {
+			// Clear terminal scrollback (iTerm2 proprietary + standard xterm)
+			tty.WriteString("\033]1337;ClearScrollback\007")
+			tty.WriteString("\033[3J\033[2J\033[H")
+			// Print tmux history to terminal's buffer
+			tty.WriteString(history)
+			tty.Sync()
+		} else {
+			// Fallback: just clear if we can't capture history
+			tty.WriteString("\033]1337;ClearScrollback\007")
+			tty.WriteString("\033[3J\033[2J\033[H")
+			tty.Sync()
+		}
+		tty.Close()
+	}
 
 	ctx := context.Background()
 	return a.session.Attach(ctx)
